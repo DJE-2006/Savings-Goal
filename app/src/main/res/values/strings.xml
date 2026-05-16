@@ -1,0 +1,63 @@
+<resources>
+    <string name="app_name">Savings Goal</string>
+    <string name="app_logo_emoji">💎</string>
+    <string name="app_title">Pocket</string>
+    <string name="app_subtitle">Smart savings, beautifully tracked.</string>
+    <string name="sign_in_title">Welcome back</string>
+    <string name="sign_in_subtitle">Sign in to keep growing your savings.</string>
+    <string name="email_hint">Email Address</string>
+    <string name="password_hint">Password</string>
+    <string name="login_button">Sign In</string>
+    <string name="login_prompt">Already have an account? Sign in</string>
+    <string name="register_prompt">New here? Create an account</string>
+    <string name="register_title">Create your account</string>
+    <string name="register_subtitle">Set goals, build streaks, hit milestones.</string>
+    <string name="register_button">Create Account</string>
+    <string name="name_hint">Full Name</string>
+    <string name="confirm_password_hint">Confirm Password</string>
+    <string name="search_hint">Search goals…</string>
+    <string name="content_desc_add_goal">Add new goal</string>
+    <string name="goal_title_hint">Goal name (e.g. New Laptop)</string>
+    <string name="target_amount_hint">Target amount (₱)</string>
+    <string name="deadline_hint">Target date (YYYY-MM-DD)</string>
+    <string name="save_goal_button">Save Goal</string>
+
+    <!-- Errors -->
+    <string name="error_name_required">Full Name is required</string>
+    <string name="error_email_required">Email is required</string>
+    <string name="error_invalid_email">Enter a valid email</string>
+    <string name="error_password_required">Password is required</string>
+    <string name="error_password_short">Password must be at least 6 characters</string>
+    <string name="error_passwords_dont_match">Passwords do not match</string>
+    <string name="error_title_required">Goal title is required</string>
+    <string name="error_target_amount_invalid">Enter a valid target amount</string>
+    <string name="error_deadline_required">Deadline is required</string>
+    <string name="error_server_unexpected">Unexpected server response</string>
+    <string name="error_connection_failed">Connection failed. Check server.</string>
+
+    <!-- Screen titles -->
+    <string name="title_register">Create Account</string>
+    <string name="title_goals">My Goals</string>
+    <string name="title_new_goal">New Goal</string>
+    <string name="title_edit_goal">Edit Goal</string>
+    <string name="title_goal_detail">Goal Details</string>
+    <string name="title_profile">Profile</string>
+    <string name="title_report">Savings Report</string>
+    <string name="content_desc_back">Back</string>
+
+    <!-- Bottom nav -->
+    <string name="nav_home">Home</string>
+    <string name="nav_goals">Goals</string>
+    <string name="nav_report">Report</string>
+    <string name="nav_profile">Profile</string>
+
+    <!-- Profile customization -->
+    <string name="bio_hint">Short bio (optional)</string>
+    <string name="profile_avatar">Avatar</string>
+    <string name="profile_appearance">Appearance</string>
+    <string name="profile_pick_photo">Choose photo</string>
+    <string name="profile_remove_photo">Remove photo</string>
+    <string name="profile_emoji_label">Or pick an emoji</string>
+    <string name="profile_accent_label">Accent color</string>
+    <string name="profile_save">Save changes</string>
+</resources>

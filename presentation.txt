@@ -1,0 +1,112 @@
+# Pocket — Smart Savings, Beautifully Tracked
+
+A native Android app that turns saving into a focused, visual journey. Users define what they're saving for — a laptop, a trip, an emergency fund — log contributions as they go, and watch each goal grow toward 100%.
+
+Built with: Java + Android Material Components, a PHP REST backend, and a MariaDB database. Designed around a deep-teal palette with warm amber accents to feel trustworthy and modern without looking like a sterile banking dashboard.
+
+Eight screens. One clear loop: set a goal → contribute → see progress → celebrate completion.
+
+---
+
+# The Problem
+
+People want to save for specific things, but the tools they have actively work against them.
+
+- **Bank apps lump every peso together.** A single balance hides the fact that ₱5,000 of it is "for the trip" and ₱3,000 is "for tuition." There's no sense of progress toward a specific outcome.
+- **Spreadsheets work, but they're tedious.** Manually updating cells after every purchase is a chore most people abandon within weeks.
+- **Notes apps and physical jars don't show progress.** Without a visible "you're 73% there" signal, motivation fades fast.
+- **Generic budget apps focus on spending, not goals.** They tell you where money went, not how close you are to what you actually want.
+
+The result: people set savings intentions, then quietly forget them. Pocket fixes that by making each goal a first-class object with its own progress bar, deadline, and contribution history.
+
+---
+
+# The Solution & Key Features
+
+Pocket structures saving around three actions: **define a goal, add a contribution, watch it complete.**
+
+- **Goals** — title, target amount, deadline. Status auto-updates: Not Started → In Progress → Completed → Cancelled.
+- **Contributions** — log any amount with an optional note. One-tap quick chips for ₱100 / ₱500 / ₱1,000 / ₱5,000 remove typing friction.
+- **Live progress** — every contribution instantly recalculates the percentage, the progress bar, and the dashboard hero card.
+- **Search** — find any goal by name as you type, even with 50+ active goals.
+- **Reports** — total saved across all goals, total target, count of completed vs. in-progress vs. cancelled, and a scrollable list of every finished goal.
+- **Profile** — update name, email, or password without leaving the app. Password change requires the current password to confirm identity.
+- **Account security** — bcrypt password hashing, per-user API tokens, and server-side validation on every endpoint.
+
+---
+
+# How It Works — Architecture & Tech Stack
+
+A clean three-tier setup that keeps the mobile client thin and the backend authoritative.
+
+**Android client (Java)**
+- Activities for each screen, RecyclerView for the goals list, Material Components for buttons/cards/text fields, ConstraintLayout + CoordinatorLayout for layout.
+- Volley handles all HTTP — async, with built-in retries and a per-app request queue.
+- A `SessionManager` stores the auth token and user info in SharedPreferences.
+
+**PHP backend**
+- Flat-file REST endpoints: `register.php`, `login.php`, `goals.php`, `contribute.php`, `report.php`, `profile.php`, `dashboard.php`.
+- Each endpoint reads JSON, validates the bearer token, queries the DB via PDO with prepared statements, and returns JSON.
+- Runs on PHP's built-in server (`php -S 0.0.0.0:8080`) for local dev.
+
+**MariaDB database**
+- Tables: `users`, `goals`, `contributions`.
+- A SQL view `v_goals_with_progress` does the heavy lifting — it joins contributions to goals and computes saved-amount and percent-complete on the fly, so the app never has to.
+
+---
+
+# Walkthrough — Onboarding
+
+**Welcome & Sign In** — A branded hero featuring the Pocket emblem and the tagline "Smart savings, beautifully tracked." Below it: email and password fields with start-icons, a primary "Sign In" button, and a one-tap link to the register screen. Inline error states handle invalid emails and wrong passwords without leaving the screen.
+
+**Create Account** — Four fields (full name, email, password, confirm password), each with Material outlined styling and lead icons. Client-side checks: valid email format, matching passwords, minimum 6-character password. Server-side rejects duplicate emails. On success, the API returns a token, the app stores it in SharedPreferences, and the user lands directly on the dashboard — no second login required.
+
+**Dashboard** — The home screen. A time-aware greeting ("Good morning, Dhruv"), an avatar with the user's first initial, a teal hero gradient card showing **Total Saved / Total Target** with a live progress bar and a "🔥 On track" pill, two stat cards (Total Goals, Completed), an "In Progress" summary, and quick-action buttons (View all goals, Savings report, My profile, Log out). A floating action button is always one tap away from creating a new goal.
+
+---
+
+# Walkthrough — The Core Loop
+
+This is where users spend most of their time. Four screens, one tight loop.
+
+**Goals List** — Every goal as a card: emoji marker, title, "₱X of ₱Y", a status pill (color-coded), a progress bar, percent complete, and the deadline. A live search bar filters as you type. A FAB creates a new goal.
+
+**Add / Edit Goal** — One screen handles both. Three fields: title, target amount (numeric), and deadline (Material date picker, no manual typing). The toolbar title swaps between "New Goal" and "Edit Goal" based on context.
+
+**Goal Detail** — The richest screen. A teal hero card shows the saved amount in large bold type, the target underneath, a thick progress bar, percent, and a calendar-icon deadline. A status row lets users change status with one tap. Edit and Delete buttons sit side-by-side. Below them, an "Add a contribution" card with quick-amount chips, an amount field, an optional note, and a green action button — every contribution updates the hero card and dashboard instantly.
+
+**Back navigation** — Every non-root screen has a Material toolbar with a back arrow, wired to standard Android up-navigation via `parentActivityName`.
+
+---
+
+# Reports, Profile & Design System
+
+**Savings Report** — A snapshot view. The hero card shows Total Saved and Total Target side-by-side, with Total Goals beneath. Three small cards break down counts: ✅ Completed, ⚡ In Progress, ✕ Cancelled. A scrollable list of completed goals lets users scroll through their wins.
+
+**Profile** — Two grouped cards: Personal Information (name, email) and Change Password (current + new). One "Update profile" button at the bottom commits all changes in a single API call.
+
+**Design System**
+- **Palette**: primary `#0F766E` (deep teal — savings and trust), accent `#F59E0B` (warm amber for highlights), background `#FAFAF9` (warm off-white), text `#1C1917` (stone-900). Semantic colors for success, info, warning, and error states.
+- **Shapes**: cards 18 dp, buttons 14 dp, text fields 14 dp — soft enough to feel modern, sharp enough to feel professional.
+- **Typography**: bold headlines with negative letter-spacing for a premium feel, regular sans-serif for body, all-caps avoided.
+- **Motion**: slide-and-fade transitions between activities so navigation feels intentional, not jarring.
+
+---
+
+# Security, Roadmap & Close
+
+**Security & Reliability**
+- Passwords hashed with PHP `password_hash` (bcrypt — slow by design to defeat brute force).
+- 64-character random hex tokens generated with `random_bytes(32)`; sent as a Bearer header on every authenticated request.
+- All SQL via PDO prepared statements — no concatenated queries, no SQL injection.
+- Every endpoint scopes its query to the token's user — Goal A's owner can never read Goal B.
+- Friendly error messages instead of stack traces when the backend is unreachable.
+
+**What's Next**
+- HTTPS + hosted backend so the app works outside a local network.
+- Push notifications for deadline reminders and milestone celebrations.
+- Recurring auto-contributions (weekly / monthly) so saving becomes automatic.
+- Shared goals for couples, families, or roommates pooling toward something together.
+- CSV / PDF export for personal records and tax season.
+
+**The closing thought** — Saving is rarely about the math. It's about staying motivated long enough to finish what you started. Pocket exists to make that easier: small steps, beautifully tracked, until the goal is yours.
