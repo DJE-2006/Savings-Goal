@@ -2,7 +2,7 @@
 
 A native Android app that turns saving into a focused, visual journey. Users define what they're saving for — a laptop, a trip, an emergency fund — log contributions as they go, and watch each goal grow toward 100%.
 
-Built with: Java + Android Material Components, a PHP REST backend, and a MariaDB database. Designed around a deep-teal palette with warm amber accents to feel trustworthy and modern without looking like a sterile banking dashboard.
+Built with: Java + Android Material Components, a Node.js + Express REST backend hosted on Render, and a PostgreSQL database hosted on Aiven — fully online, reachable over HTTPS from anywhere. Designed around a deep-teal palette with warm amber accents to feel trustworthy and modern without looking like a sterile banking dashboard.
 
 Eight screens. One clear loop: set a goal → contribute → see progress → celebrate completion.
 
@@ -41,17 +41,24 @@ A clean three-tier setup that keeps the mobile client thin and the backend autho
 
 **Android client (Java)**
 - Activities for each screen, RecyclerView for the goals list, Material Components for buttons/cards/text fields, ConstraintLayout + CoordinatorLayout for layout.
-- Volley handles all HTTP — async, with built-in retries and a per-app request queue.
-- A `SessionManager` stores the auth token and user info in SharedPreferences.
+- Volley handles all HTTP — async, with built-in retries and a per-app request queue. A custom `ApiClient` wraps Volley with a singleton queue, automatic `Authorization: Bearer <token>` headers, and a 60-second timeout to cover Render free-tier cold starts.
+- A `SessionManager` persists the JWT auth token and user info in SharedPreferences, so users stay logged in across launches.
+- A single `Repository` class is the only thing the Activities know about — it turns method calls like `repo.getGoals(...)` into REST requests under the hood.
 
-**PHP backend**
-- Flat-file REST endpoints: `register.php`, `login.php`, `goals.php`, `contribute.php`, `report.php`, `profile.php`, `dashboard.php`.
-- Each endpoint reads JSON, validates the bearer token, queries the DB via PDO with prepared statements, and returns JSON.
-- Runs on PHP's built-in server (`php -S 0.0.0.0:8080`) for local dev.
+**Node.js + Express REST backend (Render-hosted)**
+- Public URL: `https://savingsgoal-api.onrender.com`. HTTPS by default; auto-deploys on every `git push` to the GitHub repo via a Render Blueprint (`render.yaml`).
+- Routes are split into modules: `/auth` (register, login), `/goals` (full CRUD + search + contributions), `/profile` (view/update + password change), and aggregate endpoints `/dashboard` and `/report`.
+- Every authenticated request validates a JWT bearer token; every endpoint scopes its query to the token's user, so Goal A's owner can never read Goal B.
+- All SQL goes through `node-postgres` (`pg`) with parameterized queries — no concatenation, no SQL injection. Every response follows the same envelope: `{ ok: true, data: ... }` or `{ ok: false, error: ... }`.
+- Input validation runs server-side on every endpoint (required fields, email format, password length, positive amounts, allowed statuses) so a broken client can never corrupt data.
 
-**MariaDB database**
-- Tables: `users`, `goals`, `contributions`.
+**PostgreSQL database (Aiven free-tier, TLS)**
+- Tables: `users`, `goals`, `contributions` with proper foreign keys (`ON DELETE CASCADE`) and a `CHECK` constraint that enforces the four valid goal statuses at the DB level.
 - A SQL view `v_goals_with_progress` does the heavy lifting — it joins contributions to goals and computes saved-amount and percent-complete on the fly, so the app never has to.
+- Schema is version-controlled in `server/db/schema.sql` and applied with a single `npm run migrate` script.
+
+**Web hosting**
+- **GitHub** holds the source. **Render** runs the Express API on its free Node tier. **Aiven** runs the PostgreSQL service on its free PG tier. All three connect with no credit card. Total free-tier setup time: about 20 minutes, documented in `DEPLOY.md`.
 
 ---
 
@@ -96,16 +103,23 @@ This is where users spend most of their time. Four screens, one tight loop.
 # Security, Roadmap & Close
 
 **Security & Reliability**
-- Passwords hashed with PHP `password_hash` (bcrypt — slow by design to defeat brute force).
-- 64-character random hex tokens generated with `random_bytes(32)`; sent as a Bearer header on every authenticated request.
-- All SQL via PDO prepared statements — no concatenated queries, no SQL injection.
+- Passwords hashed with bcrypt via `bcryptjs` (slow by design to defeat brute force).
+- Stateless JWT auth — tokens are signed with a 96-character secret (`crypto.randomBytes(48)`) and sent as a Bearer header on every authenticated request. 30-day expiry by default.
+- All SQL goes through `node-postgres` with parameterized queries — no concatenated strings, no SQL injection.
 - Every endpoint scopes its query to the token's user — Goal A's owner can never read Goal B.
-- Friendly error messages instead of stack traces when the backend is unreachable.
+- The database connection is TLS-encrypted end-to-end (Aiven enforces SSL). The API is served over HTTPS by Render.
+- `.env` is git-ignored and never leaves the server; secrets in Render are stored as environment variables only.
+- Friendly error messages instead of stack traces when the backend is unreachable, plus a 60-second client timeout that gracefully handles Render free-tier cold starts.
+
+**What's Live Now**
+- Backend deployed to Render at `https://savingsgoal-api.onrender.com` with auto-deploy on `git push`.
+- PostgreSQL hosted on Aiven, reachable globally over TLS.
+- Android app talks to the hosted API from anywhere — no local network required, no XAMPP, no LAN-only emulator setup.
 
 **What's Next**
-- HTTPS + hosted backend so the app works outside a local network.
 - Push notifications for deadline reminders and milestone celebrations.
 - Recurring auto-contributions (weekly / monthly) so saving becomes automatic.
+- Image upload endpoint for profile avatars (currently stored on-device only).
 - Shared goals for couples, families, or roommates pooling toward something together.
 - CSV / PDF export for personal records and tax season.
 
