@@ -86,7 +86,7 @@ public class GoalAdapter extends RecyclerView.Adapter<GoalAdapter.GoalViewHolder
 
         holder.itemView.setOnClickListener(v -> {
             Intent intent = new Intent(context, GoalDetailActivity.class);
-            intent.putExtra("goal_id", goal.getId());
+            intent.putExtra("goal_id", (long) goal.getId());
             context.startActivity(intent);
         });
     }

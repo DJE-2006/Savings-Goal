@@ -43,7 +43,7 @@ public class AddEditGoalActivity extends AppCompatActivity {
         repo = Repository.get(this);
         initViews();
 
-        goalId = getIntent().getIntExtra("goal_id", -1);
+        goalId = getIntent().getLongExtra("goal_id", -1);
 
         if (goalId != -1L) {
             toolbar.setTitle(R.string.title_edit_goal);

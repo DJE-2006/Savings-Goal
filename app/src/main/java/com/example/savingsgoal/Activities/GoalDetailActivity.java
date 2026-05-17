@@ -43,7 +43,7 @@ public class GoalDetailActivity extends AppCompatActivity {
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         toolbar.setNavigationOnClickListener(v -> finish());
 
-        goalId = getIntent().getIntExtra("goal_id", -1);
+        goalId = getIntent().getLongExtra("goal_id", -1);
         if (goalId == -1L) {
             finish();
             return;
@@ -54,7 +54,7 @@ public class GoalDetailActivity extends AppCompatActivity {
 
         btnEdit.setOnClickListener(v -> {
             android.content.Intent intent = new android.content.Intent(this, AddEditGoalActivity.class);
-            intent.putExtra("goal_id", (int) goalId);
+            intent.putExtra("goal_id", goalId);
             startActivity(intent);
         });
 

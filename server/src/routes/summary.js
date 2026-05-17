@@ -7,27 +7,31 @@ const { ok, goalRow } = require('../util');
 router.use(requireAuth);
 
 async function counts(userId) {
-  const c = await q(
-    `SELECT
-       COUNT(*)                                                AS total_goals,
-       COUNT(*) FILTER (WHERE status = 'Completed')            AS completed,
-       COUNT(*) FILTER (WHERE status = 'In Progress')          AS in_progress,
-       COUNT(*) FILTER (WHERE status = 'Cancelled')            AS cancelled,
-       COALESCE(SUM(target_amount), 0)                         AS total_target
-       FROM goals WHERE user_id = $1`, [userId]);
-  const s = await q(
-    `SELECT COALESCE(SUM(c.amount), 0) AS total_saved
+  const r = await q(
+    `WITH goal_stats AS (
+       SELECT
+         COUNT(*)                                               AS total_goals,
+         COUNT(*) FILTER (WHERE status = 'Completed')          AS completed,
+         COUNT(*) FILTER (WHERE status = 'In Progress')        AS in_progress,
+         COUNT(*) FILTER (WHERE status = 'Cancelled')          AS cancelled,
+         COALESCE(SUM(target_amount), 0)                       AS total_target
+       FROM goals WHERE user_id = $1
+     ),
+     saved_stats AS (
+       SELECT COALESCE(SUM(c.amount), 0) AS total_saved
        FROM contributions c
        JOIN goals g ON g.id = c.goal_id
-      WHERE g.user_id = $1`, [userId]);
-  const row = c.rows[0]; const srow = s.rows[0];
+       WHERE g.user_id = $1
+     )
+     SELECT * FROM goal_stats, saved_stats`, [userId]);
+  const row = r.rows[0];
   return {
     totalGoals:  Number(row.total_goals  || 0),
     completed:   Number(row.completed    || 0),
     inProgress:  Number(row.in_progress  || 0),
     cancelled:   Number(row.cancelled    || 0),
     totalTarget: Number(row.total_target || 0),
-    totalSaved:  Number(srow.total_saved || 0),
+    totalSaved:  Number(row.total_saved  || 0),
   };
 }
 
