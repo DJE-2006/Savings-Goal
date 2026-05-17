@@ -3,32 +3,38 @@ package com.example.savingsgoal.Data;
 import android.content.Context;
 import android.graphics.Bitmap;
 
+import com.example.savingsgoal.Helpers.SessionManager;
 import com.example.savingsgoal.Models.SavingsGoal;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
-import java.util.Locale;
 
+/**
+ * Network-backed repository. Public surface unchanged from the original Room
+ * version, so every existing Activity keeps working without edits.
+ *
+ * - Auth / goals / contributions / dashboard / report / profile  → REST API
+ *   (https://savingsgoal-api.onrender.com)
+ * - Avatar image  → stored locally in app filesDir (no upload endpoint yet)
+ */
 public class Repository {
 
     private static volatile Repository INSTANCE;
 
     private final Context appContext;
-    private final UserDao userDao;
-    private final GoalDao goalDao;
-    private final ContributionDao contributionDao;
+    private final ApiClient api;
+    private final SessionManager session;
 
     private Repository(Context context) {
         this.appContext = context.getApplicationContext();
-        SavingsDatabase db = SavingsDatabase.get(appContext);
-        this.userDao = db.userDao();
-        this.goalDao = db.goalDao();
-        this.contributionDao = db.contributionDao();
+        this.api        = ApiClient.get(appContext);
+        this.session    = new SessionManager(appContext);
     }
 
     public static Repository get(Context context) {
@@ -40,250 +46,205 @@ public class Repository {
         return INSTANCE;
     }
 
-    // -------- Auth --------
+    // ============================ Auth ============================
 
-    public void register(String name, String email, String password, Callback<UserEntity> cb) {
-        AppExecutors.io(() -> {
-            try {
-                if (userDao.findByEmail(email) != null) {
-                    deliverError(cb, "An account with that email already exists.");
-                    return;
-                }
-                UserEntity u = new UserEntity();
-                u.name = name;
-                u.email = email;
-                u.passwordSalt = PasswordHasher.newSalt();
-                u.passwordHash = PasswordHasher.hash(password, u.passwordSalt);
-                u.accentColor = "#0F766E";
-                u.createdAt = System.currentTimeMillis();
-                u.id = userDao.insert(u);
-                deliverSuccess(cb, u);
-            } catch (Exception e) {
-                deliverError(cb, "Couldn't create account: " + e.getMessage());
-            }
+    public void register(String name, String email, String password,
+                         final Callback<UserEntity> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("name", name);
+            body.put("email", email);
+            body.put("password", password);
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+
+        api.post("/auth/register", body, new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) { handleAuth(data, cb); }
+            @Override public void onError(String message)    { cb.onError(message); }
         });
     }
 
-    public void login(String email, String password, Callback<UserEntity> cb) {
-        AppExecutors.io(() -> {
-            try {
-                UserEntity u = userDao.findByEmail(email);
-                if (u == null || !PasswordHasher.matches(password, u.passwordSalt, u.passwordHash)) {
-                    deliverError(cb, "Incorrect email or password.");
-                    return;
-                }
-                deliverSuccess(cb, u);
-            } catch (Exception e) {
-                deliverError(cb, "Login failed: " + e.getMessage());
-            }
+    public void login(String email, String password, final Callback<UserEntity> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("email", email);
+            body.put("password", password);
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+
+        api.post("/auth/login", body, new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) { handleAuth(data, cb); }
+            @Override public void onError(String message)    { cb.onError(message); }
         });
     }
 
-    // -------- Goals --------
+    private void handleAuth(JSONObject data, Callback<UserEntity> cb) {
+        try {
+            String token = data.optString("token", null);
+            if (token != null) session.setToken(token);
+            UserEntity u = userFromJson(data.getJSONObject("user"));
+            cb.onSuccess(u);
+        } catch (Exception e) {
+            cb.onError("Unexpected response from server.");
+        }
+    }
 
-    public void getGoals(long userId, Callback<List<SavingsGoal>> cb) {
-        AppExecutors.io(() -> {
-            try {
-                List<GoalWithProgress> rows = goalDao.getAllByUser(userId);
-                List<SavingsGoal> list = new ArrayList<>(rows.size());
-                for (GoalWithProgress r : rows) list.add(toModel(r));
-                deliverSuccess(cb, list);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to load goals.");
+    // ============================ Goals ============================
+
+    public void getGoals(long userId, final Callback<List<SavingsGoal>> cb) {
+        api.get("/goals", new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                try {
+                    JSONArray arr = data.getJSONArray("value");
+                    List<SavingsGoal> list = new ArrayList<>(arr.length());
+                    for (int i = 0; i < arr.length(); i++) list.add(goalFromJson(arr.getJSONObject(i)));
+                    cb.onSuccess(list);
+                } catch (Exception e) { cb.onError("Failed to load goals."); }
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
-    public void getGoal(long goalId, Callback<SavingsGoal> cb) {
-        AppExecutors.io(() -> {
-            try {
-                GoalWithProgress r = goalDao.getWithProgress(goalId);
-                if (r == null) { deliverError(cb, "Goal not found."); return; }
-                deliverSuccess(cb, toModel(r));
-            } catch (Exception e) {
-                deliverError(cb, "Failed to load goal.");
+    public void getGoal(long goalId, final Callback<SavingsGoal> cb) {
+        api.get("/goals/" + goalId, new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                try { cb.onSuccess(goalFromJson(data)); }
+                catch (Exception e) { cb.onError("Failed to load goal."); }
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
     public void createGoal(long userId, String title, double targetAmount, String deadline,
-                           Callback<Long> cb) {
-        AppExecutors.io(() -> {
-            try {
-                GoalEntity g = new GoalEntity();
-                g.userId = userId;
-                g.title = title;
-                g.targetAmount = targetAmount;
-                g.deadline = deadline;
-                g.status = "Not Started";
-                g.createdAt = System.currentTimeMillis();
-                long id = goalDao.insert(g);
-                deliverSuccess(cb, id);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to create goal.");
+                           final Callback<Long> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("title", title);
+            body.put("targetAmount", targetAmount);
+            body.put("deadline", deadline);
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+
+        api.post("/goals", body, new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                cb.onSuccess(data.optLong("id", 0L));
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
     public void updateGoal(long goalId, String title, double targetAmount, String deadline,
-                           Callback<Void> cb) {
-        AppExecutors.io(() -> {
-            try {
-                GoalEntity g = goalDao.getById(goalId);
-                if (g == null) { deliverError(cb, "Goal not found."); return; }
-                g.title = title;
-                g.targetAmount = targetAmount;
-                g.deadline = deadline;
-                goalDao.update(g);
-                deliverSuccess(cb, null);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to update goal.");
-            }
-        });
+                           final Callback<Void> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("title", title);
+            body.put("targetAmount", targetAmount);
+            body.put("deadline", deadline);
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+        api.put("/goals/" + goalId, body, voidCallback(cb));
     }
 
-    public void updateGoalStatus(long goalId, String status, Callback<Void> cb) {
-        AppExecutors.io(() -> {
-            try {
-                goalDao.updateStatus(goalId, status);
-                deliverSuccess(cb, null);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to update status.");
-            }
-        });
+    public void updateGoalStatus(long goalId, String status, final Callback<Void> cb) {
+        JSONObject body = new JSONObject();
+        try { body.put("status", status); }
+        catch (Exception e) { cb.onError("Couldn't build request."); return; }
+        api.put("/goals/" + goalId, body, voidCallback(cb));
     }
 
-    public void deleteGoal(long goalId, Callback<Void> cb) {
-        AppExecutors.io(() -> {
-            try {
-                goalDao.deleteById(goalId);
-                deliverSuccess(cb, null);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to delete goal.");
-            }
-        });
+    public void deleteGoal(long goalId, final Callback<Void> cb) {
+        api.delete("/goals/" + goalId, voidCallback(cb));
     }
 
-    // -------- Contributions --------
+    // ============================ Contributions ============================
 
-    public void contribute(long goalId, double amount, String note, Callback<Void> cb) {
-        AppExecutors.io(() -> {
-            try {
-                ContributionEntity c = new ContributionEntity();
-                c.goalId = goalId;
-                c.amount = amount;
-                c.note = (note == null || note.isEmpty()) ? null : note;
-                c.dateAdded = System.currentTimeMillis();
-                contributionDao.insert(c);
-
-                // Auto-progress a goal off "Not Started" once it has any contribution.
-                GoalEntity g = goalDao.getById(goalId);
-                if (g != null && "Not Started".equals(g.status)) {
-                    goalDao.updateStatus(goalId, "In Progress");
-                }
-                deliverSuccess(cb, null);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to add contribution.");
-            }
-        });
+    public void contribute(long goalId, double amount, String note, final Callback<Void> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("amount", amount);
+            if (note != null && !note.isEmpty()) body.put("note", note);
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+        api.post("/goals/" + goalId + "/contributions", body, voidCallback(cb));
     }
 
-    // -------- Aggregates --------
+    // ============================ Aggregates ============================
 
-    public void dashboardSummary(long userId, Callback<DashboardSummary> cb) {
-        AppExecutors.io(() -> {
-            try {
+    public void dashboardSummary(long userId, final Callback<DashboardSummary> cb) {
+        api.get("/dashboard", new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
                 DashboardSummary s = new DashboardSummary();
-                s.totalGoals  = goalDao.countByUser(userId);
-                s.completed   = goalDao.countByStatus(userId, "Completed");
-                s.inProgress  = goalDao.countByStatus(userId, "In Progress");
-                s.totalTarget = goalDao.sumTarget(userId);
-                s.totalSaved  = goalDao.sumSaved(userId);
-                deliverSuccess(cb, s);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to load summary.");
+                s.totalGoals  = data.optInt("totalGoals");
+                s.completed   = data.optInt("completed");
+                s.inProgress  = data.optInt("inProgress");
+                s.totalTarget = data.optDouble("totalTarget", 0);
+                s.totalSaved  = data.optDouble("totalSaved", 0);
+                cb.onSuccess(s);
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
-    public void reportSummary(long userId, Callback<ReportSummary> cb) {
-        AppExecutors.io(() -> {
-            try {
-                ReportSummary r = new ReportSummary();
-                r.totalGoals  = goalDao.countByUser(userId);
-                r.completed   = goalDao.countByStatus(userId, "Completed");
-                r.inProgress  = goalDao.countByStatus(userId, "In Progress");
-                r.cancelled   = goalDao.countByStatus(userId, "Cancelled");
-                r.totalTarget = goalDao.sumTarget(userId);
-                r.totalSaved  = goalDao.sumSaved(userId);
-
-                List<GoalWithProgress> rows = goalDao.getCompletedByUser(userId);
-                List<SavingsGoal> list = new ArrayList<>(rows.size());
-                for (GoalWithProgress row : rows) list.add(toModel(row));
-                r.completedGoals = list;
-
-                deliverSuccess(cb, r);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to load report.");
+    public void reportSummary(long userId, final Callback<ReportSummary> cb) {
+        api.get("/report", new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                try {
+                    ReportSummary r = new ReportSummary();
+                    r.totalGoals  = data.optInt("totalGoals");
+                    r.completed   = data.optInt("completed");
+                    r.inProgress  = data.optInt("inProgress");
+                    r.cancelled   = data.optInt("cancelled");
+                    r.totalTarget = data.optDouble("totalTarget", 0);
+                    r.totalSaved  = data.optDouble("totalSaved", 0);
+                    JSONArray arr = data.optJSONArray("completedGoals");
+                    List<SavingsGoal> list = new ArrayList<>();
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length(); i++) list.add(goalFromJson(arr.getJSONObject(i)));
+                    }
+                    r.completedGoals = list;
+                    cb.onSuccess(r);
+                } catch (Exception e) { cb.onError("Failed to load report."); }
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
-    // -------- Profile --------
+    // ============================ Profile ============================
 
-    public void getUser(long userId, Callback<UserEntity> cb) {
-        AppExecutors.io(() -> {
-            try {
-                UserEntity u = userDao.findById(userId);
-                if (u == null) { deliverError(cb, "Profile not found."); return; }
-                deliverSuccess(cb, u);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to load profile.");
+    public void getUser(long userId, final Callback<UserEntity> cb) {
+        api.get("/profile", new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                try { cb.onSuccess(userFromJson(data)); }
+                catch (Exception e) { cb.onError("Failed to load profile."); }
             }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
     public void updateProfile(long userId, String name, String email, String bio,
                               String avatarEmoji, String accentColor,
                               String currentPassword, String newPassword,
-                              Callback<UserEntity> cb) {
-        AppExecutors.io(() -> {
-            try {
-                UserEntity u = userDao.findById(userId);
-                if (u == null) { deliverError(cb, "Profile not found."); return; }
-
-                if (!u.email.equalsIgnoreCase(email)) {
-                    UserEntity other = userDao.findByEmail(email);
-                    if (other != null && other.id != userId) {
-                        deliverError(cb, "That email is already in use.");
-                        return;
-                    }
-                }
-
-                if (newPassword != null && !newPassword.isEmpty()) {
-                    if (currentPassword == null || currentPassword.isEmpty()
-                            || !PasswordHasher.matches(currentPassword, u.passwordSalt, u.passwordHash)) {
-                        deliverError(cb, "Current password is incorrect.");
-                        return;
-                    }
-                    u.passwordSalt = PasswordHasher.newSalt();
-                    u.passwordHash = PasswordHasher.hash(newPassword, u.passwordSalt);
-                }
-
-                u.name = name;
-                u.email = email;
-                u.bio = (bio == null || bio.isEmpty()) ? null : bio;
-                u.avatarEmoji = (avatarEmoji == null || avatarEmoji.isEmpty()) ? null : avatarEmoji;
-                u.accentColor = (accentColor == null || accentColor.isEmpty()) ? null : accentColor;
-                userDao.update(u);
-                deliverSuccess(cb, u);
-            } catch (Exception e) {
-                deliverError(cb, "Failed to save profile.");
+                              final Callback<UserEntity> cb) {
+        JSONObject body = new JSONObject();
+        try {
+            body.put("name",        name);
+            body.put("email",       email);
+            body.put("bio",         bio        == null ? "" : bio);
+            body.put("avatarEmoji", avatarEmoji == null ? "" : avatarEmoji);
+            body.put("accentColor", accentColor == null ? "" : accentColor);
+            if (newPassword != null && !newPassword.isEmpty()) {
+                body.put("currentPassword", currentPassword == null ? "" : currentPassword);
+                body.put("newPassword",     newPassword);
             }
+        } catch (Exception e) { cb.onError("Couldn't build request."); return; }
+
+        api.put("/profile", body, new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject data) {
+                try { cb.onSuccess(userFromJson(data)); }
+                catch (Exception e) { cb.onError("Failed to parse profile."); }
+            }
+            @Override public void onError(String message) { cb.onError(message); }
         });
     }
 
-    public void saveAvatar(long userId, Bitmap bitmap, Callback<String> cb) {
+    // ============================ Avatar (local-only) ============================
+
+    public void saveAvatar(long userId, final Bitmap bitmap, final Callback<String> cb) {
         AppExecutors.io(() -> {
             try {
                 File dir = new File(appContext.getFilesDir(), "avatars");
@@ -292,59 +253,62 @@ public class Repository {
                 try (FileOutputStream fos = new FileOutputStream(out)) {
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, fos);
                 }
-                String path = out.getAbsolutePath();
-                UserEntity u = userDao.findById(userId);
-                if (u != null) {
-                    u.avatarPath = path;
-                    userDao.update(u);
-                }
-                deliverSuccess(cb, path);
+                final String path = out.getAbsolutePath();
+                AppExecutors.main(() -> cb.onSuccess(path));
             } catch (Exception e) {
-                deliverError(cb, "Couldn't save photo.");
+                AppExecutors.main(() -> cb.onError("Couldn't save photo."));
             }
         });
     }
 
-    public void deleteAvatar(long userId, Callback<Void> cb) {
+    public void deleteAvatar(long userId, final Callback<Void> cb) {
         AppExecutors.io(() -> {
             try {
-                UserEntity u = userDao.findById(userId);
-                if (u != null && u.avatarPath != null) {
-                    new File(u.avatarPath).delete();
-                    u.avatarPath = null;
-                    userDao.update(u);
-                }
-                deliverSuccess(cb, null);
+                File f = new File(new File(appContext.getFilesDir(), "avatars"), userId + ".jpg");
+                if (f.exists()) //noinspection ResultOfMethodCallIgnored
+                    f.delete();
+                AppExecutors.main(() -> cb.onSuccess(null));
             } catch (Exception e) {
-                deliverError(cb, "Couldn't remove photo.");
+                AppExecutors.main(() -> cb.onError("Couldn't remove photo."));
             }
         });
     }
 
-    // -------- Helpers --------
+    // ============================ Helpers ============================
 
-    private static SavingsGoal toModel(GoalWithProgress row) {
-        SavingsGoal m = new SavingsGoal();
-        m.setId((int) row.goal.id);
-        m.setUserId((int) row.goal.userId);
-        m.setTitle(row.goal.title);
-        m.setTargetAmount(row.goal.targetAmount);
-        m.setSavedAmount(row.savedAmount);
-        m.setDeadline(row.goal.deadline);
-        m.setStatus(row.goal.status);
-        m.setCreatedAt(formatTs(row.goal.createdAt));
-        return m;
+    private static Callback<JSONObject> voidCallback(final Callback<Void> cb) {
+        return new Callback<JSONObject>() {
+            @Override public void onSuccess(JSONObject _ignored) { cb.onSuccess(null); }
+            @Override public void onError(String message)        { cb.onError(message); }
+        };
     }
 
-    private static String formatTs(long ms) {
-        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(ms));
+    private static SavingsGoal goalFromJson(JSONObject j) {
+        SavingsGoal g = new SavingsGoal();
+        g.setId((int) j.optLong("id"));
+        g.setUserId((int) j.optLong("userId"));
+        g.setTitle(j.optString("title"));
+        g.setTargetAmount(j.optDouble("targetAmount", 0));
+        g.setSavedAmount(j.optDouble("savedAmount", 0));
+        g.setDeadline(j.optString("deadline"));
+        g.setStatus(j.optString("status"));
+        g.setCreatedAt(String.valueOf(j.optLong("createdAt")));
+        return g;
     }
 
-    private static <T> void deliverSuccess(Callback<T> cb, T value) {
-        AppExecutors.main(() -> cb.onSuccess(value));
-    }
-
-    private static <T> void deliverError(Callback<T> cb, String msg) {
-        AppExecutors.main(() -> cb.onError(msg));
+    private static UserEntity userFromJson(JSONObject j) {
+        UserEntity u = new UserEntity();
+        u.id          = j.optLong("id");
+        u.name        = j.optString("name", "");
+        u.email       = j.optString("email", "");
+        u.bio         = j.isNull("bio")         ? null : j.optString("bio", null);
+        u.avatarEmoji = j.isNull("avatarEmoji") ? null : j.optString("avatarEmoji", null);
+        u.accentColor = j.isNull("accentColor") ? null : j.optString("accentColor", null);
+        u.createdAt   = j.optLong("createdAt");
+        // Network responses don't carry these — leave default.
+        u.passwordHash = "";
+        u.passwordSalt = "";
+        u.avatarPath   = null;
+        return u;
     }
 }

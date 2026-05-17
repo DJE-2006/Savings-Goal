@@ -15,6 +15,7 @@ public class SessionManager {
     private static final String KEY_AVATAR   = "avatarPath";
     private static final String KEY_ACCENT   = "accentColor";
     private static final String KEY_BIO      = "bio";
+    private static final String KEY_TOKEN    = "authToken";
 
     public static final String DEFAULT_ACCENT_HEX = "#0F766E";
 
@@ -49,6 +50,11 @@ public class SessionManager {
     public void setAvatarPath(String avatarPath) {
         pref.edit().putString(KEY_AVATAR, avatarPath).apply();
     }
+
+    public void setToken(String token) {
+        pref.edit().putString(KEY_TOKEN, token).apply();
+    }
+    public String getToken() { return pref.getString(KEY_TOKEN, null); }
 
     public boolean isLoggedIn()   { return pref.getBoolean(KEY_LOGIN, false); }
     public long    getUserId()    { return pref.getLong(KEY_ID, -1L); }
